@@ -923,5 +923,26 @@ window.addEventListener("keydown", (e) => {
     if (e.key === "F4") { e.preventDefault(); document.getElementById("btnReset").click(); }
 });
 
-// Initialize with Quicksort
-loadPreset("quicksort");
+// Initialize preset (supports optional URL parameters ?preset=...&steps=...&autorun=1)
+const urlParams = new URLSearchParams(window.location.search);
+const initialPreset = urlParams.get("preset") || "quicksort";
+document.getElementById("presetSelect").value = initialPreset;
+loadPreset(initialPreset);
+
+const autoSteps = parseInt(urlParams.get("steps") || "0", 10);
+if (autoSteps > 0) {
+    for (let i = 0; i < autoSteps && !sim.halted; i++) {
+        sim.step();
+    }
+    refreshAll(true);
+} else if (urlParams.get("autorun") === "1") {
+    for (let i = 0; i < 100000 && !sim.halted; i++) {
+        const res = sim.step();
+        if (res.status !== "OK") {
+            if (res.message) appendLog(`[Simulador] ${res.message}\n`);
+            setStatusBadge(res.status === "ERROR" ? "error" : "halted", "Completed");
+            break;
+        }
+    }
+    refreshAll(true);
+}
