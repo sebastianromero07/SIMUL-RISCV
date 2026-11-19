@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulador RISC-V (RV32I) — CS3051 Arquitectura de Computadores</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <!-- Top Toolbar (CPUlator style) -->
+    <header class="topbar">
+        <div class="status-badge stopped" id="statusBadge">Stopped</div>
+
+        <div class="toolbar-group">
+            <button class="tool-btn primary" id="btnStep" title="Ejecutar una instrucción (F2)">
+                <span class="btn-title">Step Into</span>
+                <span class="btn-sub">(Step / F2)</span>
+            </button>
+            <button class="tool-btn" id="btnRun" title="Ejecutar hasta terminar o breakpoint (F3)">
+                <span class="btn-title">Continue</span>
+                <span class="btn-sub">(Run / F3)</span>
+            </button>
+            <button class="tool-btn" id="btnStop" title="Pausar ejecución" disabled>
+                <span class="btn-title">Stop</span>
+                <span class="btn-sub">(Pause)</span>
+            </button>
+            <button class="tool-btn" id="btnReset" title="Reiniciar CPU y recargar programa (F4)">
+                <span class="btn-title">Restart</span>
+                <span class="btn-sub">(Reset / F4)</span>
+            </button>
+        </div>
+
+        <div class="toolbar-group">
+            <label class="select-label" for="presetSelect">Programa:</label>
+            <select id="presetSelect" class="tool-select">
+                <option value="quicksort">1. Quicksort (0x1000: {6,4,3,2,1,8,9})</option>
+                <option value="symmetric_tree">2. Árbol Simétrico (is_symmetric -> a0=1)</option>
+                <option value="riscvtest">3. riscvtest.s (escribe 25 en 0x64)</option>
+                <option value="ecall_demo">4. Fibonacci + ecall SPIM (I/O y sbrk)</option>
+                <option value="full_rv32i_test">5. Test de instrucciones RV32I</option>
+                <option value="programa_demo">6. Demo básico de registros y memoria</option>
+            </select>
+            <button class="tool-btn" id="btnLoadFile" title="Cargar archivo .bin o .elf desde tu PC">
+                <span class="btn-title">Cargar .bin / .elf</span>
+                <span class="btn-sub">(Desde archivo)</span>
+            </button>
+            <input type="file" id="fileInput" accept=".bin,.elf,.raw,*" style="display:none" />
+        </div>
+
+        <div class="toolbar-right">
+            <span class="arch-title">RISC-V RV32I Simulator — CS3051</span>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+        <!-- Left Panel: Registers + Display Settings -->
+        <aside class="left-panel">
+            <div class="panel-header">
+                <span>Registers (32 + PC)</span>
+                <span id="cycleCounter" class="cycle-badge">Steps: 0</span>
+            </div>
+            <div class="reg-table-container">
+                <table class="reg-table">
+                    <thead>
+                        <tr>
+                            <th>Reg</th>
+                            <th>ABI</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody id="regTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="settings-box">
+                <div class="panel-header">Number Display Options</div>
+                <div class="settings-body">
+                    <div class="setting-row">
+                        <label for="regFormatSelect">Format:</label>
+                        <select id="regFormatSelect">
+                            <option value="hex">Hexadecimal</option>
+                            <option value="signed">Decimal (Signed)</option>
+                            <option value="unsigned">Decimal (Unsigned)</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <label for="memWordsPerRow">Words per row:</label>
+                        <select id="memWordsPerRow">
+                            <option value="4" selected>4 (16 bytes)</option>
+                            <option value="2">2 (8 bytes)</option>
+                            <option value="1">1 (4 bytes)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center/Right Panel: Disassembly & Memory Inspector -->
+        <main class="center-panel">
+            <div class="tabs-bar">
+                <button class="tab-btn active" data-tab="split">Vista Dividida (Disassembly + Memory)</button>
+                <button class="tab-btn" data-tab="disasm">Disassembly (Desensamblador)</button>
+                <button class="tab-btn" data-tab="memory">Memory (Memoria Little-Endian)</button>
+            </div>
+
+            <div class="center-content split-mode" id="centerContent">
+                <!-- Disassembly Pane -->
+                <section class="pane" id="disasmPane">
+                    <div class="pane-toolbar">
+                        <strong>Disassembly (Código de Máquina y Ensamblador RV32I)</strong>
+                        <div class="quick-btns">
+                            <button class="mini-btn" id="btnFollowPc">Ir a PC</button>
+                            <button class="mini-btn" id="btnClearBp">Limpiar Breakpoints</button>
+                        </div>
+                    </div>
+                    <div class="table-scroll" id="disasmScroll">
+                        <table class="code-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:36px">BP</th>
+                                    <th style="width:110px">Address</th>
+                                    <th style="width:105px">Hex (LE Word)</th>
+                                    <th>Instruction (RV32I)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="disasmTableBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Memory Pane -->
+                <section class="pane" id="memoryPane">
+                    <div class="pane-toolbar">
+                        <div class="goto-bar">
+                            <label for="memAddressInput">Go to address / reg:</label>
+                            <input type="text" id="memAddressInput" value="0x00001000" placeholder="0x1000, 0x64, sp..." />
+                            <button class="mini-btn" id="btnGoMem">Ir</button>
+                            <button class="mini-btn" data-jump="0x00000000">0x0000 (.text)</button>
+                            <button class="mini-btn" data-jump="0x00000060">0x0060 (riscvtest)</button>
+                            <button class="mini-btn" data-jump="0x00001000">0x1000 (datos)</button>
+                            <button class="mini-btn" data-jump="0x0000FFC0">0xFFC0 (stack)</button>
+                        </div>
+                        <button class="mini-btn" id="btnToggleLoadSave" title="Abrir panel Load/Save Memory">
+                            Load / Save Raw &#9776;
+                        </button>
+                    </div>
+
+                    <div class="memory-body-wrap">
+                        <div class="table-scroll" id="memScroll">
+                            <table class="mem-table">
+                                <thead id="memTableHead"></thead>
+                                <tbody id="memTableBody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- Side drawer matching Appendix B (Load/Save Raw Binary) -->
+                        <div class="load-save-drawer" id="loadSaveDrawer">
+                            <h4>Load / Save Memory</h4>
+                            <div class="drawer-group">
+                                <label>File format:</label>
+                                <select disabled><option>Raw (.bin)</option></select>
+                            </div>
+                            <hr />
+                            <div class="drawer-group">
+                                <strong>Load to 0x00000000</strong>
+                                <button class="mini-btn full-w" id="btnDrawerLoad">Load from file...</button>
+                            </div>
+                            <hr />
+                            <div class="drawer-group">
+                                <strong>Save Raw Binary</strong>
+                                <label>Start address (hex):</label>
+                                <input type="text" id="saveStartAddr" value="0000" />
+                                <label>End address (hex):</label>
+                                <input type="text" id="saveEndAddr" value="0120" />
+                                <button class="mini-btn full-w primary-mini" id="btnSaveRaw">Save to file (.bin)</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Bottom Panel: Messages & Syscall (ecall) Terminal -->
+            <footer class="bottom-panel">
+                <div class="bottom-header">
+                    <span>Messages &amp; Consola ecall (SPIM Syscalls)</span>
+                    <div class="bottom-actions">
+                        <input type="text" id="stdinInput" placeholder="Entrada para ecall read_int (5) / read_string (8)..." />
+                        <button class="mini-btn" id="btnClearLog">Clear</button>
+                    </div>
+                </div>
+                <pre class="console-output" id="consoleOutput"></pre>
+            </footer>
+        </main>
+    </div>
+
+    <script src="simulator.js"></script>
+</body>
+</html>
